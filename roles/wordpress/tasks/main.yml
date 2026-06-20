@@ -1,0 +1,142 @@
+---
+- name: Create project directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+  loop:
+    - "{{ project_dir }}"
+    - "{{ project_dir }}/certbot"
+    - "{{ project_dir }}/certbot/www"
+
+- name: Check if TLS certificate exists
+  stat:
+    path: "{{ project_dir }}/certbot/live/{{ domain_name }}/fullchain.pem"
+  register: tls_cert
+
+- name: Copy Docker Compose file
+  template:
+    src: docker-compose.yml
+    dest: "{{ project_dir }}/docker-compose.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+
+- name: Use HTTP nginx config until certificate exists
+  template:
+    src: nginx-http.conf
+    dest: "{{ project_dir }}/nginx.conf"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+  when: not tls_cert.stat.exists
+
+- name: Use HTTPS nginx config when certificate exists
+  template:
+    src: nginx.conf
+    dest: "{{ project_dir }}/nginx.conf"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+  when: tls_cert.stat.exists
+
+- name: Start containers
+  command: docker compose up -d
+  args:
+    chdir: "{{ project_dir }}"
+
+- name: Wait for MariaDB
+  command: docker inspect --format='{{ '{{' }}.State.Health.Status{{ '}}' }}' cloud1_mariadb
+  register: db_status
+  until: db_status.stdout == "healthy"
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Wait for nginx
+  command: docker inspect --format='{{ '{{' }}.State.Running{{ '}}' }}' cloud1_nginx
+  register: nginx_status
+  until: nginx_status.stdout == "true"
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: Get TLS certificate with certbot
+  command: >
+    docker run --rm
+    -v {{ project_dir }}/certbot:/etc/letsencrypt
+    -v {{ project_dir }}/certbot/www:/var/www/certbot
+    certbot/certbot certonly
+    --webroot -w /var/www/certbot
+    -d {{ domain_name }}
+    --email {{ certbot_email }}
+    --agree-tos
+    --non-interactive
+  when: not tls_cert.stat.exists
+
+- name: Switch to HTTPS nginx config
+  template:
+    src: nginx.conf
+    dest: "{{ project_dir }}/nginx.conf"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+  when: not tls_cert.stat.exists
+
+- name: Reload nginx for HTTPS
+  command: docker restart cloud1_nginx
+  when: not tls_cert.stat.exists
+
+- name: Set WordPress URL
+  set_fact:
+    wp_url: "https://{{ domain_name }}"
+
+- name: Check if WordPress is installed
+  command: >
+    docker run --rm
+    --network {{ project_name }}_backend
+    -v {{ project_name }}_wordpress_data:/var/www/html
+    -e WORDPRESS_DB_HOST=mariadb:3306
+    -e WORDPRESS_DB_NAME={{ db_name }}
+    -e WORDPRESS_DB_USER={{ db_user }}
+    -e WORDPRESS_DB_PASSWORD={{ db_password }}
+    wordpress:cli wp core is-installed --allow-root
+  register: wp_installed
+  failed_when: false
+  changed_when: false
+
+- name: Install WordPress
+  command: >
+    docker run --rm
+    --network {{ project_name }}_backend
+    -v {{ project_name }}_wordpress_data:/var/www/html
+    -e WORDPRESS_DB_HOST=mariadb:3306
+    -e WORDPRESS_DB_NAME={{ db_name }}
+    -e WORDPRESS_DB_USER={{ db_user }}
+    -e WORDPRESS_DB_PASSWORD={{ db_password }}
+    wordpress:cli wp core install
+    --url="{{ wp_url }}"
+    --title="{{ wp_site_title }}"
+    --admin_user="{{ wp_admin_user }}"
+    --admin_password="{{ wp_admin_password }}"
+    --admin_email="{{ wp_admin_email }}"
+    --skip-email
+    --allow-root
+  when: wp_installed.rc != 0
+
+- name: Update WordPress URL to HTTPS domain
+  command: >
+    docker run --rm
+    --network {{ project_name }}_backend
+    -v {{ project_name }}_wordpress_data:/var/www/html
+    -e WORDPRESS_DB_HOST=mariadb:3306
+    -e WORDPRESS_DB_NAME={{ db_name }}
+    -e WORDPRESS_DB_USER={{ db_user }}
+    -e WORDPRESS_DB_PASSWORD={{ db_password }}
+    wordpress:cli wp option update {{ item }} "{{ wp_url }}" --allow-root
+  loop:
+    - home
+    - siteurl
+  when: wp_installed.rc == 0

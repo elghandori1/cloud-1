@@ -1,0 +1,11 @@
+---
+- name: Deploy Cloud-1 WordPress Infrastructure
+  hosts: cloud1
+  become: yes
+  gather_facts: yes
+
+  roles:
+    - common
+    - security
+    - docker
+    - wordpress

@@ -1,0 +1,55 @@
+---
+- name: Configure UFW - default deny incoming
+  ufw:
+    direction: incoming
+    policy: deny
+
+- name: Configure UFW - default allow outgoing
+  ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+
+- name: Allow HTTP
+  ufw:
+    rule: allow
+    port: '80'
+    proto: tcp
+
+- name: Allow HTTPS
+  ufw:
+    rule: allow
+    port: '443'
+    proto: tcp
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+
+- name: Configure fail2ban for SSH
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 3
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+  notify: restart fail2ban
+
+- name: Ensure fail2ban is running
+  systemd:
+    name: fail2ban
+    enabled: yes
+    state: started

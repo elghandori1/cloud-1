@@ -1,0 +1,42 @@
+---
+- name: Install certbot
+  apt:
+    name: certbot
+    state: present
+
+- name: Check if certificate already exists
+  stat:
+    path: "{{ project_dir }}/certbot/live/{{ domain_name }}/fullchain.pem"
+  register: tls_cert
+
+- name: Create certbot directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+  loop:
+    - "{{ project_dir }}/certbot"
+    - "{{ project_dir }}/certbot/www"
+
+- name: Obtain Let's Encrypt certificate (first time)
+  command: >
+    certbot certonly
+    --webroot
+    -w {{ project_dir }}/certbot/www
+    -d {{ domain_name }}
+    --email {{ certbot_email }}
+    --agree-tos
+    --non-interactive
+  when:
+    - domain_name | length > 0
+    - not tls_cert.stat.exists
+
+- name: Setup auto-renewal cron job
+  cron:
+    name: "Certbot renewal for {{ domain_name }}"
+    minute: "0"
+    hour: "12"
+    job: "certbot renew --webroot -w {{ project_dir }}/certbot/www --quiet --deploy-hook 'docker exec cloud1_nginx nginx -s reload'"
+    user: root

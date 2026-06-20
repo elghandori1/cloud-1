@@ -1,0 +1,99 @@
+# ================ commands.bash ================
+
+# connect to the server
+ssh -i ~/.ssh/cloud1_key ubuntu@DROPLET_IP_Public
+
+# ------------------ SSH & Basic Connection
+
+# SSH into your server
+ssh -i ~/.ssh/cloud1_key ubuntu@DROPLET_IP_Public
+
+# Check if server is reachable (before SSH)
+ping DROPLET_IP_Public
+
+# Check SSH port is open (from your laptop)
+nc -zv DROPLET_IP_Public 22
+
+# Check DNS resolution (if using domain)
+dig +short mgcloud1.webhop.me
+nslookup mgcloud1.webhop.me
+
+
+# ------------------ Docker Commands
+
+# List running containers
+docker ps
+
+# List ALL containers (including stopped)
+docker ps -a
+
+
+# List Docker volumes
+docker volume ls
+
+# List Docker networks
+docker network ls
+
+# Inspect a specific container
+docker inspect cloud1_nginx
+
+# Check container resource usage
+docker stats
+
+# Execute command inside container
+docker exec cloud1_nginx nginx -t          # Test nginx config
+docker exec cloud1_nginx cat /etc/nginx/nginx.conf
+docker exec cloud1_wordpress ls -la /var/www/html
+docker exec cloud1_mariadb mysql -u wp_user -p -e "SHOW DATABASES;"
+
+# Restart a specific container
+docker restart cloud1_nginx
+
+# Stop a specific container
+docker stop cloud1_nginx
+
+# ------------------ Check wordpress and Test HTTP , certificates, and cron
+
+# Test HTTP (should redirect to HTTPS)
+curl -I http://localhost/
+curl -I http://mgcloud1.webhop.me
+
+# Test HTTPS (ignore cert warning with -k)
+curl -Ik https://localhost/
+curl -Ik https://mgcloud1.webhop.me
+
+# Check certificates
+sudo certbot certificates
+
+# Check cron
+sudo crontab -l
+
+# ---------------- Cleanup / Reset Commands
+
+# soft reset (keep volumes and networks) 
+docker compose down
+docker compose up -d
+
+# Stop and remove ALL containers
+docker stop $(docker ps -aq) 2>/dev/null
+docker rm $(docker ps -aq) 2>/dev/null
+
+# Remove ALL volumes (this deletes WordPress data and database!)
+docker volume rm $(docker volume ls -q) 2>/dev/null
+
+# Remove ALL networks (except default bridge)
+docker network prune -f
+
+# Remove the project directory
+sudo rm -rf /opt/cloud1
+
+# Remove certbot certificates (not necessary if you are going to re-use the same domain name)
+sudo rm -rf /etc/letsencrypt/live/mgcloud1.webhop.me
+sudo rm -rf /etc/letsencrypt/archive/mgcloud1.webhop.me
+sudo rm -f /etc/letsencrypt/renewal/mgcloud1.webhop.me.conf
+
+# Remove cron job
+sudo crontab -l | grep -v "Certbot renewal" | sudo crontab -
+
+# Exit
+exit

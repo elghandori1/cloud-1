@@ -1,3 +1,0 @@
----
-- name: reload nginx
-  command: docker exec cloud1_nginx nginx -s reload

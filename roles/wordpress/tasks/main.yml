@@ -8,12 +8,12 @@
     mode: '0755'
   loop:
     - "{{ project_dir }}"
-    - "{{ project_dir }}/certbot"
-    - "{{ project_dir }}/certbot/www"
+    - "{{ cert_dir }}"
+    - "{{ cert_dir }}/www"
 
 - name: Check if TLS certificate exists
   stat:
-    path: "{{ project_dir }}/certbot/live/{{ domain_name }}/fullchain.pem"
+    path: "{{ cert_dir }}/live/{{ domain_name }}/fullchain.pem"
   register: tls_cert
 
 - name: Copy Docker Compose file
@@ -24,28 +24,30 @@
     group: "{{ deploy_user }}"
     mode: '0644'
 
-- name: Use HTTP nginx config until certificate exists
-  template:
-    src: nginx-http.conf
-    dest: "{{ project_dir }}/nginx.conf"
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0644'
-  when: not tls_cert.stat.exists
-
-- name: Use HTTPS nginx config when certificate exists
+- name: Deploy nginx config
   template:
     src: nginx.conf
     dest: "{{ project_dir }}/nginx.conf"
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0644'
-  when: tls_cert.stat.exists
+  register: nginx_config
+  vars:
+    nginx_https: "{{ tls_cert.stat.exists }}"
 
 - name: Start containers
   command: docker compose up -d
   args:
     chdir: "{{ project_dir }}"
+
+- name: Reload nginx after config change
+  command: docker exec cloud1_nginx nginx -s reload
+  when: nginx_config is changed
+  failed_when: false
+
+- name: Restart nginx if reload failed
+  command: docker restart cloud1_nginx
+  when: nginx_config is changed
 
 - name: Wait for MariaDB
   command: docker inspect --format='{{ '{{' }}.State.Health.Status{{ '}}' }}' cloud1_mariadb
@@ -66,8 +68,8 @@
 - name: Get TLS certificate with certbot
   command: >
     docker run --rm
-    -v {{ project_dir }}/certbot:/etc/letsencrypt
-    -v {{ project_dir }}/certbot/www:/var/www/certbot
+    -v {{ cert_dir }}:/etc/letsencrypt
+    -v {{ cert_dir }}/www:/var/www/certbot
     certbot/certbot certonly
     --webroot -w /var/www/certbot
     -d {{ domain_name }}
@@ -76,16 +78,18 @@
     --non-interactive
   when: not tls_cert.stat.exists
 
-- name: Switch to HTTPS nginx config
+- name: Enable HTTPS in nginx config
   template:
     src: nginx.conf
     dest: "{{ project_dir }}/nginx.conf"
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0644'
+  vars:
+    nginx_https: true
   when: not tls_cert.stat.exists
 
-- name: Reload nginx for HTTPS
+- name: Restart nginx for HTTPS
   command: docker restart cloud1_nginx
   when: not tls_cert.stat.exists
 

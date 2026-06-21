@@ -9,8 +9,8 @@ services:
     volumes:
       - wordpress_data:/var/www/html:ro
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./certbot:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
+      - {{ cert_dir }}:/etc/letsencrypt:ro
+      - {{ cert_dir }}/www:/var/www/certbot:ro
     depends_on:
       - wordpress
     networks:

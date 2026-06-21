@@ -1,7 +1,8 @@
 ---
 project_name: cloud1
-domain_name: "mgcloud1.webhop.me"
+domain_name: "cloud1-abed.sytes.net"
 certbot_email: "admin@student.42.fr"
+cert_dir: "/opt/certbot"
 
 db_name: wordpress
 db_user: wp_user

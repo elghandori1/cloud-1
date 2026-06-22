@@ -18,7 +18,6 @@ nc -zv DROPLET_IP_Public 22
 dig +short mgcloud1.webhop.me
 nslookup mgcloud1.webhop.me
 
-
 # ------------------ Docker Commands
 
 # List running containers
@@ -44,7 +43,7 @@ docker stats
 docker exec cloud1_nginx nginx -t          # Test nginx config
 docker exec cloud1_nginx cat /etc/nginx/nginx.conf
 docker exec cloud1_wordpress ls -la /var/www/html
-docker exec cloud1_mariadb mysql -u wp_user -p -e "SHOW DATABASES;"
+docker exec cloud1_mariadb mysql -u wp_user -p"WpCloud1Secure2024!" -e "SHOW DATABASES;"
 
 # Restart a specific container
 docker restart cloud1_nginx
@@ -62,11 +61,29 @@ curl -I http://mgcloud1.webhop.me
 curl -Ik https://localhost/
 curl -Ik https://mgcloud1.webhop.me
 
-# Check certificates
-sudo certbot certificates
+# -------------------- Check certificates & crontab
+
+# find certificate and must see /live folder
+sudo ls -la /opt/cloud1/certbot/
+
+# If we find we go deeper :
+
+sudo ls -la /opt/certbot/live/
+
+# Check content certificate
+
+sudo openssl x509 -in /opt/certbot/live/YOUR_DOMAIN_NAME/fullchain.pem -text -noout
+sudo openssl x509 -in /opt/certbot/live/cloud1-abed.sytes.net/fullchain.pem -text -noout
 
 # Check cron
 sudo crontab -l
+
+#----------------- Test mariadb from out
+# From your laptop (or droplet host) - (Should FAIL)
+mysql -h YOUR_DROPLET_IP -P 3306 -u wp_user -p
+
+# From Inside the Docker Network - (Should WORK)
+docker run --rm -it --network cloud1_backend alpine sh
 
 # ---------------- Cleanup / Reset Commands
 
@@ -87,13 +104,50 @@ docker network prune -f
 # Remove the project directory
 sudo rm -rf /opt/cloud1
 
-# Remove certbot certificates (not necessary if you are going to re-use the same domain name)
-sudo rm -rf /etc/letsencrypt/live/mgcloud1.webhop.me
-sudo rm -rf /etc/letsencrypt/archive/mgcloud1.webhop.me
-sudo rm -f /etc/letsencrypt/renewal/mgcloud1.webhop.me.conf
-
 # Remove cron job
 sudo crontab -l | grep -v "Certbot renewal" | sudo crontab -
 
 # Exit
 exit
+
+# ---------------------- ansibale commands
+
+# Encrypt 
+ansible-vault encrypt group_vars/all/vault.yml
+
+# Decrypt
+ansible-vault decrypt group_vars/all/vault.yml
+
+# +++++++++++++++++ check Communication Proof 
+
+# From nginx container, reach wordpress
+docker exec cloud1_nginx ping -c 1 wordpress
+
+# From wordpress container, reach mariadb
+docker exec cloud1_wordpress ping -c 1 mariadb
+
+# From phpmyadmin container, reach both
+docker exec cloud1_phpmyadmin ping -c 1 mariadb
+docker exec cloud1_phpmyadmin ping -c 1 nginx
+
+# +++++++++++++++ Volumes
+# List volumes
+docker volume ls
+# DRIVER    VOLUME NAME
+# local     cloud1_wordpress_data
+# local     cloud1_db_data
+
+# Inspect a volume
+docker volume inspect cloud1_db_data
+# Shows Mountpoint, CreatedAt, etc.
+
+# See actual files on host
+sudo ls -la $(docker volume inspect -f '{{ .Mountpoint }}' cloud1_wordpress_data)
+
+# See database files
+sudo ls -la $(docker volume inspect -f '{{ .Mountpoint }}' cloud1_db_data)
+
+# ++++++++++++++ Orchestration
+
+# Start entire stack
+cd /opt/cloud1 && docker compose up -d
